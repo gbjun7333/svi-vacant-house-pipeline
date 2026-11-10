@@ -1,0 +1,10 @@
+# Python 3.12
+numpy==2.5.4
+pandas==3.0.6
+scikit-learn==1.9.1
+shapely==2.2.0
+pillow==12.3.0
+pyyaml==6.0.3
+torch==2.14.1
+torchvision==0.29.1
+transformers==5.19.0

@@ -1,0 +1,11 @@
+# Training settings of the classification experiment (Section 3.4).
+# Every input condition and every fold uses the same settings.
+train:
+  backbone: resnet50      # ImageNet weights (IMAGENET1K_V2)
+  batch_size: 64
+  epochs: 20
+  lr: 0.0003              # AdamW, cosine annealing over `epochs`
+  weight_decay: 0.0001
+  num_workers: 4
+  patience: 5             # early stopping on validation accuracy
+  use_amp: true           # mixed precision, used on CUDA only

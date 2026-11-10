@@ -1,0 +1,29 @@
+# data, intermediate tables, caches and results are never committed
+/data/
+/work/
+/cache/
+/results/
+/runs/
+
+# secrets
+.env
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.ipynb_checkpoints/
+
+# R
+Rplots.pdf
+.Rhistory
+.RData
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
