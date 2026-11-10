@@ -1,19 +1,8 @@
 """Model inputs of the classification experiment (Section 3.4).
 
-Every condition sees the whole 4:3 frame resized to 256 x 192, without a centre crop.
-
-    training    random crop of 80 to 100% of the frame area at the 4:3 aspect ratio,
-                resized to 256 x 192, horizontal flip, colour jitter
-    evaluation  plain resize to 256 x 192
-
-Rows are dicts read from the split files: ``crop_path`` (image), ``label_id``
-(1 vacant, 0 non-vacant), ``example_id``, ``source``, and for the conditions with a
-mask the path of an 8-bit PNG of the frame's size in which 255 marks the house
-(``mask_path`` for the top-1 mask, ``mask_shuf_path`` for the shuffled-mask control).
-
-For those conditions the mask is the fourth input channel. It gets the same crop and
-flip as the image (nearest-neighbour resampling) and the values -1 (background) and
-+1 (house). ``mask_only`` sets the three image channels to zero.
+The whole 4:3 frame is resized to 256 x 192. Training adds a random crop of 80 to 100%
+of the frame, a horizontal flip and colour jitter. A mask goes in as a fourth channel
+with -1 for background and +1 for the house, and gets the same crop and flip.
 """
 from __future__ import annotations
 
@@ -33,7 +22,7 @@ FRAME43 = [192, 256]           # (height, width) of the model input
 
 
 def rgb_transforms():
-    """(training transform, evaluation transform) for the three-channel conditions."""
+    """(train, eval) transforms for the image-only conditions."""
     train_tf = T.Compose([
         T.RandomResizedCrop(tuple(FRAME43), scale=(0.8, 1.0), ratio=(4 / 3, 4 / 3)),
         T.RandomHorizontalFlip(),
@@ -50,7 +39,7 @@ def rgb_transforms():
 
 
 class ImageDataset(Dataset):
-    """Three-channel input: the image only."""
+    """Image only, three channels."""
 
     def __init__(self, rows: list[dict[str, str]], transform):
         self.rows = rows
@@ -68,7 +57,7 @@ class ImageDataset(Dataset):
 
 
 class MaskTransform:
-    """Joint transform of an image and its mask into a four-channel tensor."""
+    """Same crop and flip for an image and its mask, stacked into four channels."""
 
     def __init__(self, train: bool, mask_col: str = "mask_path", mask_only: bool = False):
         self.train, self.mask_col, self.mask_only = train, mask_col, mask_only
@@ -95,7 +84,7 @@ class MaskTransform:
 
 
 class MaskDataset(Dataset):
-    """Four-channel input: the image and the mask named by the transform's ``mask_col``."""
+    """Image plus the mask in transform.mask_col, four channels."""
 
     def __init__(self, rows, transform: MaskTransform):
         self.rows, self.transform = rows, transform

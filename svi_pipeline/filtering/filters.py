@@ -1,26 +1,13 @@
-"""Image filters and the filter configuration of each operating group (Section 3.2, Table 1).
+"""Filters B to F and the filter configuration of each operating group (Section 3.2, Table 1).
 
-Filters are coded as in Table 1 of the paper:
-
-    A  distance            panorama farther than 30 m from the parcel
-    B  vegetation occlusion
-    C  close-up capture
-    D  vehicle occlusion
-    E  abnormal angle
-    F  central building
-
-Filter A is applied when the images are acquired (Section 3.1), so it is not part
-of this module. Filters B to F work on the ratios returned by ``segment``. Each
-function returns True when the image passes.
-
-This module has no third-party dependencies.
+A filter returns True when the image passes. Filter A (distance) is applied when the
+images are acquired, so it is not here.
 """
 from __future__ import annotations
 
 from typing import Dict, Tuple
 
 
-# Filters and thresholds per operating group (Table 1).
 GROUP_FILTERS = {
     "Green_Rural":   {"filters": ["B", "F"],      "params": {"B_max": 0.50, "F_min": 0.10}},
     "Green_Urban":   {"filters": ["B", "D", "F"], "params": {"B_max": 0.50, "D_max": 0.02, "F_min": 0.05}},
@@ -38,17 +25,17 @@ GROUP_NAMES = [
 
 
 def filter_b(r: Dict, threshold: float = 0.40) -> bool:
-    """B, vegetation occlusion: pass when vegetation_ratio <= threshold."""
+    """B, vegetation occlusion."""
     return r["vegetation_ratio"] <= threshold
 
 
 def filter_c(r: Dict, min_ratio: float = 0.05, max_ratio: float = 0.80) -> bool:
-    """C, close-up capture: pass when min_ratio <= building_ratio <= max_ratio."""
+    """C, close-up capture."""
     return min_ratio <= r["building_ratio"] <= max_ratio
 
 
 def filter_d(r: Dict, threshold: float = 0.10) -> bool:
-    """D, vehicle occlusion: pass when vehicle_building_overlap < threshold."""
+    """D, vehicle occlusion."""
     vbo = r.get("vehicle_building_overlap")
     if vbo is None:
         return True
@@ -56,9 +43,8 @@ def filter_d(r: Dict, threshold: float = 0.10) -> bool:
 
 
 def filter_e(r: Dict, sky_min: float = 0.01, road_min: float = 0.01, bldg_exception: float = 0.50) -> bool:
-    """E, abnormal angle: fail when both sky and road are nearly absent.
-
-    An image whose building_ratio is at least ``bldg_exception`` always passes.
+    """E, abnormal angle. Fails when sky and road are both nearly absent,
+    unless buildings cover at least bldg_exception of the frame.
     """
     if r["building_ratio"] >= bldg_exception:
         return True
@@ -68,7 +54,7 @@ def filter_e(r: Dict, sky_min: float = 0.01, road_min: float = 0.01, bldg_except
 
 
 def filter_f(r: Dict, threshold: float = 0.05) -> bool:
-    """F, central building: pass when center_building_ratio >= threshold."""
+    """F, central building."""
     cbr = r.get("center_building_ratio")
     if cbr is None:
         return True
@@ -76,11 +62,7 @@ def filter_f(r: Dict, threshold: float = 0.05) -> bool:
 
 
 def apply_group_filters(r: Dict, group_name: str) -> Tuple[bool, Dict[str, bool]]:
-    """Apply the filters of an operating group to one image.
-
-    Returns (passed, result of each applied filter). A group name that is not in
-    ``GROUP_FILTERS`` gets filters B to F with their default thresholds.
-    """
+    """(passed, result of each filter) for one image. Unknown groups get B to F with default thresholds."""
     if group_name not in GROUP_FILTERS:
         results = {
             "B": filter_b(r), "C": filter_c(r), "D": filter_d(r),

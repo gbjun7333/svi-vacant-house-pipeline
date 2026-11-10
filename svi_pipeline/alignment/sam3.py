@@ -1,23 +1,7 @@
-"""Building instance masks with SAM 3 and the image exclusions at this step
-(Section 3.3, Supplementary Table C.2).
+"""SAM 3 house and fence masks, and the images excluded at this step (Section 3.3, Table C.2).
 
-SAM 3 is run through Hugging Face ``transformers`` (``Sam3Model``, weights
-``facebook/sam3``) with two text prompts, "house" and "fence". For each prompt:
-
-    score = sigmoid(pred_logits) * sigmoid(presence_logits), instances with score > 0.5 are kept
-    mask  = mask logits resized bilinearly to the image (align_corners=False), thresholded at 0
-    box   = predicted xyxy box scaled to pixels
-
-The house masks are saved (``masks.save_mask_npz``). An image is excluded when
-
-    no_house        no house instance
-    too_many        8 or more house instances
-    fence_dominant  fence masks cover half of the frame or more
-    distant_small   mean house-mask area below 3% of the frame, or total below 5%
-
-where a ratio is the summed mask area of the prompt divided by the image area.
-
-``SAM3_MODEL`` may point to another model id or to a local snapshot folder.
+SAM 3 runs through Hugging Face transformers with the text prompts "house" and "fence".
+SAM3_MODEL can point to another model id or a local snapshot folder.
 """
 from __future__ import annotations
 
@@ -35,10 +19,11 @@ from .masks import save_mask_npz
 CONF = 0.5
 PROMPTS = ("house", "fence")
 
-MAX_HOUSES = 8                 # this many house instances or more -> too_many
-MAX_FENCE_RATIO = 0.5          # fence_ratio at or above this -> fence_dominant
-MIN_MEAN_HOUSE_RATIO = 0.03    # house_ratio / num_houses below this -> distant_small
-MIN_HOUSE_RATIO = 0.05         # house_ratio below this -> distant_small
+# exclusion thresholds, ratios are mask area over image area
+MAX_HOUSES = 8                 # too_many at or above
+MAX_FENCE_RATIO = 0.5          # fence_dominant at or above
+MIN_MEAN_HOUSE_RATIO = 0.03    # distant_small below, mean over the house masks
+MIN_HOUSE_RATIO = 0.05         # distant_small below, all house masks together
 
 
 class Sam3Runner:
@@ -55,8 +40,7 @@ class Sam3Runner:
             self._text[p] = {k: v.to(self.device) for k, v in t.items() if k in ("input_ids", "attention_mask")}
 
     def pixel_values(self, image: Image.Image) -> torch.Tensor:
-        """Image transform of the reference SAM 3 processor: uint8, resize to
-        1008 x 1008, float in [0, 1], normalise with mean 0.5 and std 0.5."""
+        """Same preprocessing as the reference SAM 3 processor."""
         from torchvision.transforms import v2
 
         tf = v2.Compose([
@@ -70,7 +54,7 @@ class Sam3Runner:
 
     @torch.inference_mode()
     def predict(self, image: Image.Image) -> dict:
-        """{prompt: (masks [n, H, W] bool, boxes [n, 4] float32, scores [n] float32)}."""
+        """{prompt: (masks [n, H, W], boxes [n, 4], scores [n])}."""
         w, h = image.size
         px = self.pixel_values(image)
         vision = self.model.get_vision_features(pixel_values=px)
@@ -109,7 +93,7 @@ def house_filter(num_houses: int, house_ratio: float, fence_ratio: float) -> tup
 
 
 def run_one(runner: Sam3Runner, image_path: Path, house_npz: Path) -> dict:
-    """Segment one image, save its house masks and return the exclusion decision."""
+    """Segment one image, save its house masks, return the exclusion result."""
     t0 = time.time()
     img = Image.open(image_path).convert("RGB")
     w, h = img.size

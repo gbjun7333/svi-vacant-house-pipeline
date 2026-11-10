@@ -1,27 +1,4 @@
-"""The two inputs of the pipeline: an image table and a parcel file.
-
-images.csv, one row per street view image
-
-    image_path    image file, absolute or relative to the folder of the CSV
-    parcel_id     id of the parcel the image was taken for
-    camera_lat    position of the camera in decimal degrees (WGS84)
-    camera_lng
-    heading       compass bearing of the image centre in degrees (0 = north, 90 = east)
-    fov           horizontal field of view of the image in degrees
-    image_id      optional, unique id of the image
-                  (default: image_path without its extension)
-    platform      optional, name of the image source (default: "default").
-                  Image groups are fitted separately for each platform
-
-parcels.geojson, a GeoJSON FeatureCollection in longitude and latitude (WGS84) with
-one Polygon or MultiPolygon per parcel and these properties
-
-    parcel_id     required
-    label         "vacant" or "non_vacant", needed from the dataset step on
-    division      "Urban" or "Rural", optional (default: "Urban")
-    pair_id       optional, shared by parcels that must stay in the same split,
-                  for example a matched vacant and non-vacant parcel
-"""
+"""Readers for the image table (CSV) and the parcel file (GeoJSON). README.md lists the columns."""
 from __future__ import annotations
 
 import json
@@ -44,15 +21,17 @@ def _text(value) -> str:
 
 
 def default_image_id(image_path: str) -> str:
-    """Image path without its extension, as a relative path that is safe as a file name."""
+    """Image path without its extension, safe to use as a file name."""
     parts = [p for p in Path(_text(image_path)).with_suffix("").as_posix().split("/") if p not in ("", ".")]
     return "/".join("_" if p == ".." else p.replace(":", "_") for p in parts)
 
 
 def load_images(images_csv: Path) -> pd.DataFrame:
-    """Image table with the columns image_id, path (absolute), parcel_id, platform,
-    camera_lat, camera_lng, heading and fov. Camera values that are missing or not
-    numbers are NaN."""
+    """Image table with image_id, path, parcel_id, platform and the camera values.
+
+    Relative image paths are resolved against the folder of the CSV. image_id defaults
+    to the image path without its extension. Missing camera values become NaN.
+    """
     images_csv = Path(images_csv)
     df = pd.read_csv(images_csv, encoding="utf-8-sig", dtype=str, keep_default_na=False)
     missing = [c for c in ("image_path", "parcel_id") if c not in df.columns]
@@ -94,7 +73,7 @@ def _label(value) -> str:
 
 
 def load_parcels(parcels_geojson: Path) -> Dict[str, Dict]:
-    """{parcel_id: {"geometry": GeoJSON geometry, "division", "label", "pair_id"}}."""
+    """{parcel_id: {"geometry", "division", "label", "pair_id"}}, division defaulting to Urban."""
     path = Path(parcels_geojson)
     data = json.loads(path.read_text(encoding="utf-8-sig"))
     if data.get("type") != "FeatureCollection":

@@ -1,13 +1,7 @@
-"""Image groups by K-means (Section 3.2).
+"""Image groups by K-means on [vegetation_ratio, sky_ratio], k = 3, one model per platform (Section 3.2).
 
-Images are clustered on two segmentation ratios, [vegetation_ratio, sky_ratio],
-standardised with a StandardScaler. The building ratio is left out of the features
-on purpose, because the Building Capture Rate that evaluates the groups is defined
-on it. One model is fitted per platform with k = 3. ``models/`` holds the two
-models fitted in the study (Naver and Kakao images), and ``assign_cluster``
-applies a fitted model to images without refitting.
-
-This module needs numpy only. ``fit_cluster_model`` additionally needs scikit-learn.
+The building ratio is not a feature, because the Building Capture Rate that evaluates
+the groups is defined on it. models/ holds the two models fitted in the study.
 """
 from __future__ import annotations
 
@@ -20,16 +14,7 @@ import numpy as np
 from .groups import BUILT_UP, GREEN, OPEN_SKY
 
 
-# ---------------------------------------------------------------------------
-# fitted model: load and apply
-# ---------------------------------------------------------------------------
-
 def load_cluster_model(path: str | Path) -> Dict:
-    """Load a fitted clustering model.
-
-    Required keys: ``scaler_mean``, ``scaler_std``, ``kmeans_centers`` (in scaled
-    space) and ``cluster_names`` (cluster index as a string -> image group).
-    """
     with open(path, "r", encoding="utf-8") as f:
         model = json.load(f)
     for key in ("scaler_mean", "scaler_std", "kmeans_centers", "cluster_names"):
@@ -39,12 +24,7 @@ def load_cluster_model(path: str | Path) -> Dict:
 
 
 def assign_cluster(vegetation_ratio: float, sky_ratio: float, model: Dict) -> Tuple[int, str]:
-    """Nearest fitted centroid for one image. Returns (cluster index, image group).
-
-    Same arithmetic as ``StandardScaler.transform`` followed by ``KMeans.predict``:
-    scale by the stored mean and standard deviation, then take the centroid with the
-    smallest Euclidean distance.
-    """
+    """(cluster index, image group) of the nearest centroid, after scaling with the stored mean and std."""
     mean = np.asarray(model["scaler_mean"], dtype=float)
     std = np.asarray(model["scaler_std"], dtype=float)
     centers = np.asarray(model["kmeans_centers"], dtype=float)
@@ -57,17 +37,8 @@ def assign_cluster(vegetation_ratio: float, sky_ratio: float, model: Dict) -> Tu
     return cluster_id, model["cluster_names"][str(cluster_id)]
 
 
-# ---------------------------------------------------------------------------
-# fitting
-# ---------------------------------------------------------------------------
-
 def name_clusters(cluster_stats: Dict[int, Dict]) -> Dict[int, str]:
-    """Name each cluster after its dominant scene attribute.
-
-    The cluster with the highest mean vegetation ratio is Green. Among the others,
-    the one with the highest mean sky ratio is Open-sky. The rest are Built-up.
-    ``cluster_stats[c]`` needs ``vegetation_mean`` and ``sky_mean``.
-    """
+    """Highest mean vegetation ratio is Green, then highest mean sky ratio Open-sky, the rest Built-up."""
     clusters = list(cluster_stats.keys())
     name_map: Dict[int, str] = {}
 
@@ -94,12 +65,7 @@ def name_clusters(cluster_stats: Dict[int, Dict]) -> Dict[int, str]:
 
 
 def fit_cluster_model(records: Sequence[Dict], n_clusters: int = 3, seed: int = 42) -> Tuple[Dict, List[int]]:
-    """Fit StandardScaler + K-means on [vegetation_ratio, sky_ratio].
-
-    ``records`` are per-image dicts with ``vegetation_ratio``, ``sky_ratio`` and
-    ``building_ratio``. Returns the model as a JSON-serialisable dict (the format
-    ``load_cluster_model`` reads) and the cluster index of every record.
-    """
+    """Fit StandardScaler and K-means. Returns the model as a dict and the cluster index of each record."""
     from sklearn.cluster import KMeans
     from sklearn.preprocessing import StandardScaler
 
@@ -132,4 +98,3 @@ def fit_cluster_model(records: Sequence[Dict], n_clusters: int = 3, seed: int = 
         "kmeans_centers": kmeans.cluster_centers_.tolist(),
     }
     return model, [int(c) for c in cluster_labels]
-

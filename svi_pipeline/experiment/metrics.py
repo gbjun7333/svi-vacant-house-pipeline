@@ -1,10 +1,4 @@
-"""Evaluation measures of the classification experiment (Section 3.4).
-
-Images are scored by the model, parcels by the mean probability of their images.
-F1 uses a threshold tuned on the validation images of the fold: the threshold with
-the highest image-level F1 among the validation probabilities (the smallest one when
-several tie). The same threshold is applied to images and parcels of the test split.
-"""
+"""F1, AUROC, threshold tuning and parcel-level aggregation (Section 3.4)."""
 from __future__ import annotations
 
 import math
@@ -22,7 +16,7 @@ def safe_div(a: float, b: float) -> float:
 
 
 def compute_auc(labels: np.ndarray, scores: np.ndarray) -> float:
-    """AUROC as the share of (vacant, non-vacant) pairs ranked correctly, ties counting half."""
+    """AUROC as the share of (vacant, non-vacant) pairs ranked correctly. Ties count half."""
     pos = scores[labels == 1]
     neg = scores[labels == 0]
     if len(pos) == 0 or len(neg) == 0:
@@ -36,7 +30,7 @@ def compute_auc(labels: np.ndarray, scores: np.ndarray) -> float:
 
 
 def metrics_at(labels: np.ndarray, probs: np.ndarray, thr: float) -> dict:
-    """Counts, accuracy, precision, recall and F1 at a threshold (prob >= thr is vacant), and AUROC."""
+    """Metrics at a threshold, where prob >= thr counts as vacant."""
     preds = (probs >= thr).astype(np.int64)
     labels = labels.astype(np.int64)
     tp = int(((preds == 1) & (labels == 1)).sum()); tn = int(((preds == 0) & (labels == 0)).sum())
@@ -48,7 +42,7 @@ def metrics_at(labels: np.ndarray, probs: np.ndarray, thr: float) -> dict:
 
 
 def tune_threshold(labels: np.ndarray, probs: np.ndarray) -> tuple[float, float]:
-    """(threshold, F1) with the highest F1 over the distinct probabilities, ties to the smallest."""
+    """(threshold, F1) with the highest F1. The smallest threshold wins a tie."""
     best_t, best_f1 = 0.5, -1.0
     for t in np.unique(probs):
         f1 = metrics_at(labels, probs, float(t))["f1"]
@@ -58,6 +52,6 @@ def tune_threshold(labels: np.ndarray, probs: np.ndarray) -> tuple[float, float]
 
 
 def parcel_level(parcel_keys, labels, probs) -> pd.DataFrame:
-    """One row per parcel: label, mean probability of its images, number of images."""
+    """One row per parcel with the mean probability of its images."""
     df = pd.DataFrame({"parcel_key": list(parcel_keys), "label_id": [int(v) for v in labels], "prob": probs})
     return df.groupby("parcel_key").agg(label_id=("label_id", "first"), prob=("prob", "mean"), n_views=("prob", "size"))

@@ -1,16 +1,6 @@
-"""Instance-mask files (Section 3.3).
+"""House masks of one image, bit-packed in one .npz file (Section 3.3).
 
-One ``.npz`` file per image holds every house mask SAM 3 found in it:
-
-    num_masks     int
-    height, width int, size of the image
-    mask_bits     uint8 [num_masks, ceil(height * width / 8)], each mask bit-packed
-                  with ``np.packbits`` in row-major order
-    bboxes_xyxy   int32 [num_masks, 4], boxes predicted by the model
-    areas         int32 [num_masks], mask pixel counts
-    scores        float32 [num_masks]
-
-A mask index always refers to the position in this file.
+A mask index is the position of the mask in that file.
 """
 from __future__ import annotations
 
@@ -36,7 +26,7 @@ def load_all_masks(npz_path: Path) -> Tuple[List[np.ndarray], List[float], List[
 
 
 def load_mask_stack(npz_path: Path) -> np.ndarray:
-    """All masks of one image as a bool array [num_masks, height, width]."""
+    """All masks of one image as a bool array [n, H, W]."""
     data = np.load(npz_path)
     num_masks = int(data["num_masks"])
     height = int(data["height"])
@@ -48,7 +38,7 @@ def load_mask_stack(npz_path: Path) -> np.ndarray:
 
 
 def tight_bbox_from_mask(mask: np.ndarray) -> Tuple[int, int, int, int]:
-    """Pixel extent of a mask as (x1, y1, x2, y2), x2 and y2 exclusive."""
+    """(x1, y1, x2, y2) extent of a mask, x2 and y2 exclusive."""
     ys, xs = np.where(mask)
     if len(xs) == 0:
         raise ValueError("empty mask")
@@ -57,7 +47,7 @@ def tight_bbox_from_mask(mask: np.ndarray) -> Tuple[int, int, int, int]:
 
 def save_mask_npz(save_path: Path, masks: np.ndarray, boxes: np.ndarray, scores: np.ndarray,
                   height: int, width: int) -> None:
-    """Write the masks of one image ([n, height, width] bool) in the format above."""
+    """Write the masks of one image ([n, H, W] bool)."""
     save_path.parent.mkdir(parents=True, exist_ok=True)
     n = masks.shape[0]
     if n == 0:

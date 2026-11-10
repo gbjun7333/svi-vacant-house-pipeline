@@ -1,20 +1,9 @@
-"""Spatial scores of the candidate masks of one image (Section 3.3).
+"""Scores of each house mask against the parcel band (Section 3.3).
 
-Each house mask M_k is scored against the parcel band B = [u_min, u_max] with three
-factors between 0 and 1:
-
-    center alignment   f_align   = exp(-(c_k - c_B)^2 / sigma^2)
-                       c_k = mean column of the mask, c_B = centre of the band,
-                       sigma = SIGMA_BAND_FRAC * width of the band
-    overlap            f_overlap = one-dimensional IoU of the mask's column range
-                       [l_k, r_k] and the band
-    area consistency   f_size    = exp(-|log(A_k / A_expected(d))| / TAU_SIZE)
-                       A_k = mask area, A_expected(d) = pixel area of a house of
-                       STANDARD_HOUSE_M seen from the capture distance d
-    combined score     s = f_align * f_overlap * f_size
-
-The record keys ``f_align``, ``f_overlap``, ``f_size`` and ``s`` are kept as written
-by the study. ``selection`` turns the scores into a top-1 mask.
+    f_align    exp(-(c_k - c_B)^2 / sigma^2), mask centre against band centre
+    f_overlap  1-D IoU of the mask's column range and the band
+    f_size     exp(-|log(A_k / A_expected)| / TAU_SIZE), mask area against a reference house
+    s          f_align * f_overlap * f_size
 """
 from __future__ import annotations
 
@@ -34,12 +23,12 @@ STANDARD_HOUSE_M = (8.0, 4.0)   # (width, height) of the reference house
 
 def score_masks(masks, Bt: Tuple[float, float], d_pano_target: float, fx: float,
                 sigma_frac: float = SIGMA_BAND_FRAC, tau: float = TAU_SIZE) -> List[Dict]:
-    """Scores of every non-empty mask: idx, cx, l, r, area, f_align, f_overlap, f_size, s."""
+    """One dict per non-empty mask with its column extent, area and scores."""
     u_min, u_max = Bt
     c_B = (u_min + u_max) / 2.0
     band_w = max(u_max - u_min, 1.0)
     sigma = sigma_frac * band_w
-    # expected mask area in pixels of the reference house at distance d
+    # pixel area of the reference house at distance d
     W_h, H_h = STANDARD_HOUSE_M
     d_eff = max(d_pano_target, 1.0)
     A_hat = (W_h * H_h * fx * fx) / (d_eff * d_eff)
@@ -73,18 +62,7 @@ def score_image(mask_path: Path, parcel_geometry: Optional[Dict], camera_lat: fl
                 heading: float, fov: float) -> Dict:
     """Parcel band and candidate scores of one image.
 
-    ``parcel_geometry`` is the GeoJSON geometry of the image's parcel in longitude
-    and latitude, ``camera_lat`` and ``camera_lng`` the camera position, ``heading``
-    the compass bearing of the image centre and ``fov`` the horizontal field of view,
-    both in degrees.
-
-    The record has ``error == ""`` and a ``cands`` list on success. Otherwise ``error``
-    is one of ``no_mask``, ``no_parcel_polygon``, ``target_behind_camera``,
-    ``no_valid_mask`` or an exception text.
-
-    Each candidate: idx, area, cx, l, r, bot (lowest mask row), sam (model score),
-    f_align, f_overlap, f_size, s. The record also carries the parcel band
-    (``bt_umin``, ``bt_umax``) and the capture distance ``d_m``.
+    error is "" on success. Otherwise it names the reason and there are no candidates.
     """
     try:
         masks, scores_sam, _bboxes = load_all_masks(mask_path)
@@ -115,5 +93,5 @@ def score_image(mask_path: Path, parcel_geometry: Optional[Dict], camera_lat: fl
         return {"n_masks": len(masks), "W": W, "H": H,
                 "bt_umin": round(Bt[0], 1), "bt_umax": round(Bt[1], 1), "d_m": round(d, 1),
                 "heading": heading, "fov": fov, "cands": cands, "error": ""}
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return {"error": f"{type(e).__name__}:{e}"[:300]}

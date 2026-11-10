@@ -1,16 +1,7 @@
-"""Input conditions, folds and seeds of the classification experiment (Section 3.4, Table 3).
-
-    raw            image, all images of the parcel            Raw SVI
-    filtered       image, images that passed filtering        + Group-specific filtering
-    aligned        image + top-1 house mask (4th channel)     + Target-house alignment
-    aligned_shuf   image + mask of another house in the frame Shuffled-mask control
-    mask_only      top-1 mask without the image               Mask-only control
-
-``files`` names the split files a condition reads, ``mask_col`` the column with the
-mask PNG that becomes the fourth input channel.
-"""
-SEEDS = [13, 17, 23, 29, 31]   # fold k is trained with SEEDS[k]
+"""Input conditions, folds and seeds of the classification experiment (Section 3.4, Table 3)."""
+SEEDS = [13, 17, 23, 29, 31]   # fold k uses SEEDS[k]
 FOLDS = range(5)
+# files = split files the condition reads, mask_col = column with the mask PNG (fourth input channel)
 CONDS = {
     "raw": {"files": "raw", "mask_col": None, "mask_only": False},
     "filtered": {"files": "filtered", "mask_col": None, "mask_only": False},
