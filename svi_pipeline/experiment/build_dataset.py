@@ -1,52 +1,15 @@
-#!/usr/bin/env python3
-"""Step 3: dataset of the classification experiment (Section 3.4).
+"""Step 3. Dataset of the classification experiment (Section 3.4).
 
-Builds, from the outputs of steps 1 and 2 and the labels of the parcel file, the
-images of the three input conditions, the mask files, the equal image counts and
-the folds.
-
-Conditions (every path is an unmarked frame)
-    raw        every image of the parcel
-    filtered   images that passed group-specific filtering and the SAM 3 step
-    aligned    filtered images with a top-1 house mask. ``mask_path`` is that mask as
-               an 8-bit PNG of the frame's size, ``mask_shuf_path`` the mask of another
-               house in the same frame (drawn at random among the other masks that
-               cover at least 1% of the frame; if there is none, the top-1 mask
-               mirrored left to right)
-
-Split units: parcels that share a ``pair_id`` in the parcel file form one unit, and
-a parcel without ``pair_id`` is a unit of its own. A unit is kept when every one of
-its parcels has images in all three conditions. All images of a unit stay in the
-same split.
-
-Equal image count: every parcel keeps, in raw and filtered, as many images as it has
-in aligned. They are drawn at random with a seed that depends only on the condition
-and the parcel (``draw_equal``).
-
-Folds: the units, sorted by id, are shuffled with a fixed seed and dealt into ten
-groups. Fold k (0 to 4) tests on groups 2k and 2k+1, validates on group
-(2k+2) mod 10 and trains on the other seven, so every unit is tested once.
-
-Outputs in ``--output-dir`` (default ``<work-dir>/dataset``)
-    split_units.csv                         one row per unit with its split in each fold
-    manifests/<cond>_full.csv, _eq.csv      all images, and the equal-count selection
-    masks/, masks_shuf/                     mask PNGs of the aligned images
-    folds/fold<k>/<cond>_<train|val|test>.csv
-    dataset_summary.json
-
-In the tables ``pair_id`` is the split unit, ``parcel_key`` the parcel id,
-``view_id`` the image id, ``crop_path`` the image file and ``source`` the platform.
-
-Usage:
-    python scripts/3.4_experimental_setup/03_build_dataset.py \
-        --images data/images.csv --parcels data/parcels.geojson --work-dir work
+Three conditions per parcel. Raw is every image, filtered the images that passed
+filtering and the SAM 3 step, aligned the filtered images with a top-1 house mask.
+Raw and filtered are sampled down to the aligned image count of the parcel. Parcels
+that share a pair_id stay in one split, and fold k tests on groups 2k and 2k+1 of ten.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import random
-import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -54,13 +17,8 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-try:
-    import svi_pipeline  # noqa: F401
-except ImportError:  # running from a checkout without installing the package
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from svi_pipeline.alignment.masks import load_mask_stack
-from svi_pipeline.inputs import load_images, load_parcels
+from ..alignment.masks import load_mask_stack
+from ..inputs import load_images, load_parcels
 
 SEED = 2026
 CONDS = ("raw", "filtered", "aligned")
@@ -72,17 +30,10 @@ def read_table(path: Path) -> pd.DataFrame:
     return pd.read_csv(path, encoding="utf-8-sig", dtype=str, keep_default_na=False)
 
 
-# ---------------------------------------------------------------------------
-# equal image count
-# ---------------------------------------------------------------------------
-
 def draw_equal(df: pd.DataFrame, n_ref: pd.Series, cond: str, seed: int = SEED) -> tuple[pd.DataFrame, list]:
-    """Keep, for every parcel_key, ``n_ref[parcel_key]`` rows of ``df``.
+    """Keep n_ref[parcel] rows per parcel, drawn with a seed fixed by condition and parcel.
 
-    The parcel's rows are sorted by view_id and crop_path, then
-    ``random.Random('{seed}:{cond}:{parcel_key}').sample`` picks the rows, which stay
-    in sorted order. A parcel with fewer rows than its reference count is kept whole
-    and returned in the second value.
+    Parcels with fewer rows are kept whole and returned in the second value.
     """
     keep, short = [], []
     for pk, g in df.groupby("parcel_key", sort=True):
@@ -97,17 +48,13 @@ def draw_equal(df: pd.DataFrame, n_ref: pd.Series, cond: str, seed: int = SEED) 
     return pd.concat(keep).sort_index(), short
 
 
-# ---------------------------------------------------------------------------
-# masks
-# ---------------------------------------------------------------------------
-
 def write_mask(stack: np.ndarray, idx: int, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray((stack[idx].astype(np.uint8) * 255)).save(path, optimize=True)
 
 
 def shuffled_index(stack: np.ndarray, top: int, key: str) -> int | None:
-    """Index of another house mask of the frame for the shuffled-mask control."""
+    """Another house mask of the frame (at least 1% of its area) for the shuffled-mask control."""
     area = stack.reshape(len(stack), -1).mean(axis=1)
     others = [i for i in range(len(stack)) if i != top and area[i] >= 0.01]
     if not others:
@@ -141,7 +88,8 @@ def main() -> None:
     filtered_ok = set(filt.loc[filt["passed"] == "True", "image_id"]) & set(sam.loc[sam["filter_result"] == "pass", "image_id"])
     aligned = aln[aln["aligned"] == "True"].set_index("image_id")
 
-    # ---------------- images of every condition, in the order of the image table
+    # pair_id is the split unit, parcel_key the parcel, view_id the image,
+    # crop_path the image file and source the platform
     rows = {c: [] for c in CONDS}
     for r in images.itertuples():
         p = labelled.get(r.parcel_id)
@@ -172,7 +120,7 @@ def main() -> None:
     P["n_parcels"] = P["pair_id"].map(lambda u: len(members[u]))
     full = {c: d[d["pair_id"].isin(ok_units)].reset_index(drop=True) for c, d in full.items()}
 
-    # ---------------- masks of the aligned images
+    # mask PNGs of the aligned images
     A = full["aligned"]
     mpaths, spaths, shuf_kind, n_masks, areas = [], [], [], [], []
     for i, r in enumerate(A.itertuples()):
@@ -186,6 +134,7 @@ def main() -> None:
         j = shuffled_index(stack, r.top1, r.view_id)
         sp = R / "masks_shuf" / f"{tag}.png"
         if j is None:
+            # no other house in the frame, so the top-1 mask is mirrored
             sp.parent.mkdir(parents=True, exist_ok=True)
             Image.fromarray(stack[r.top1][:, ::-1].astype(np.uint8) * 255).save(sp, optimize=True)
             shuf_kind.append("mirrored_top1")
@@ -197,7 +146,7 @@ def main() -> None:
     A = A.assign(mask_path=mpaths, mask_shuf_path=spaths, shuf_kind=shuf_kind, n_masks=n_masks, mask_area=areas)
     full["aligned"] = A
 
-    # ---------------- equal image count and folds
+    # equal image counts, then folds
     n_ref = A.groupby("parcel_key").size()
     eq = {"aligned": A}
     short = {}

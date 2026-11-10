@@ -1,30 +1,8 @@
-#!/usr/bin/env python3
-"""Step 4: train and apply the classifiers of the classification experiment (Section 3.4).
+"""Step 4. Train and apply the classifiers (Section 3.4).
 
-Five input conditions on the same images, folds and settings:
-
-    raw            image, all images of the parcel            Raw SVI
-    filtered       image, images that passed filtering        + Group-specific filtering
-    aligned        image + top-1 house mask (4th channel)     + Target-house alignment
-    aligned_shuf   image + mask of another house in the frame Shuffled-mask control
-    mask_only      top-1 mask without the image               Mask-only control
-
-One model is trained per condition and fold (fold k uses seed ``SEEDS[k]``) with the
-settings of ``svi_pipeline/experiment/configs/train.yaml``, on the split files
-written by ``03_build_dataset.py``:
-``<dataset-dir>/folds/fold<k>/<raw|filtered|aligned>_<train|val|test>.csv``.
-
-    train     one condition and fold       -> <runs-dir>/<cond>/fold<k>/best.pt
-    run-all   every condition and fold (finished runs are skipped), then predict
-    predict   probabilities of the validation and test images of every finished run
-              -> <runs-dir>/predictions/<cond>_fold<k>_<val|test>.csv
-
-Each image is predicted by the model of the fold in which its split unit was held
-out. ``05_evaluate.py`` turns the predictions into F1 and AUROC.
-
-Usage:
-    python scripts/3.4_experimental_setup/04_train_and_predict.py run-all \
-        --dataset-dir work/dataset --runs-dir work/runs
+    train     one condition and fold
+    run-all   every condition and fold, skipping finished runs, then predict
+    predict   vacancy probabilities of the validation and test images of each fold
 """
 from __future__ import annotations
 
@@ -38,16 +16,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-try:
-    import svi_pipeline  # noqa: F401
-except ImportError:  # running from a checkout without installing the package
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from svi_pipeline.experiment.conditions import CONDS, FOLDS, ORDER, SEEDS
-from svi_pipeline.experiment.metrics import sigmoid
+from .conditions import CONDS, FOLDS, ORDER, SEEDS
+from .metrics import sigmoid
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TRAIN_SCRIPT = Path(__file__).resolve().with_name("train.py")
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -66,7 +38,7 @@ def cmd_train(dataset_dir: Path, runs_dir: Path, cond: str, fold: int, config: P
         return
     c = CONDS[cond]
     fd = dataset_dir / "folds" / f"fold{fold}"
-    cmd = [sys.executable, str(TRAIN_SCRIPT),
+    cmd = [sys.executable, "-m", "svi_pipeline.experiment.train",
            "--train-csv", str((fd / f"{c['files']}_train.csv").resolve()),
            "--val-csv", str((fd / f"{c['files']}_val.csv").resolve()),
            "--seed", str(SEEDS[fold]), "--output-dir", str(out.resolve())]
@@ -88,11 +60,11 @@ def cmd_train(dataset_dir: Path, runs_dir: Path, cond: str, fold: int, config: P
 
 
 def predict(runs_dir: Path, cond: str, fold: int, rows, torch, device) -> np.ndarray:
-    """Vacancy probability of every row from the model of this condition and fold."""
+    """Vacancy probabilities of the rows, from the model of one condition and fold."""
     from torch.utils.data import DataLoader
 
-    from svi_pipeline.experiment.data import ImageDataset, MaskDataset, MaskTransform, rgb_transforms
-    from svi_pipeline.experiment.model import create_model, widen_conv1
+    from .data import ImageDataset, MaskDataset, MaskTransform, rgb_transforms
+    from .model import create_model, widen_conv1
 
     c = CONDS[cond]
     blob = torch.load(run_dir(runs_dir, cond, fold) / "best.pt", map_location="cpu", weights_only=False)
@@ -118,7 +90,7 @@ def predict(runs_dir: Path, cond: str, fold: int, rows, torch, device) -> np.nda
 def cmd_predict(dataset_dir: Path, runs_dir: Path) -> None:
     import torch
 
-    from svi_pipeline.device import get_device
+    from ..device import get_device
 
     device = get_device()
     out = runs_dir / "predictions"
@@ -148,7 +120,7 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     parsers = {name: sub.add_parser(name) for name in ("train", "run-all", "predict")}
     for p in parsers.values():
-        p.add_argument("--dataset-dir", type=Path, required=True, help="output folder of 03_build_dataset.py")
+        p.add_argument("--dataset-dir", type=Path, required=True, help="output folder of build_dataset")
         p.add_argument("--runs-dir", type=Path, required=True, help="folder for checkpoints and predictions")
     for name in ("train", "run-all"):
         parsers[name].add_argument("--config", type=Path, default=None,

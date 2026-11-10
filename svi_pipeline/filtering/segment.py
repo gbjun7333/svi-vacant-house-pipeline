@@ -1,15 +1,4 @@
-"""Semantic segmentation of one image and its class ratios (Section 3.2).
-
-SegFormer-B2 fine-tuned on the 19 Cityscapes classes labels every pixel. The ratios
-returned here are the only image features the filtering procedure uses:
-
-    building_ratio, vegetation_ratio, sky_ratio, road_ratio, sidewalk_ratio
-    center_building_ratio      building share of the central 10% x 10% of the frame
-    vehicle_ratio              share of car, truck and bus pixels
-    vehicle_building_overlap   share of pixels labelled both vehicle and building
-
-Requires torch and transformers. ``cluster`` and ``filters`` do not import this module.
-"""
+"""SegFormer-B2 (Cityscapes) segmentation of one image and its class ratios (Section 3.2)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,8 +8,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
-
-from ..device import get_device  # noqa: F401  (re-exported for callers)
 
 SEGFORMER_MODEL_ID = "nvidia/segformer-b2-finetuned-cityscapes-1024-1024"
 
@@ -38,7 +25,6 @@ VEHICLE_CLASSES = [
 
 
 def load_model(device: torch.device):
-    """Load SegFormer-B2 and its image processor."""
     from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
 
     processor = SegformerImageProcessor.from_pretrained(SEGFORMER_MODEL_ID)
@@ -51,7 +37,7 @@ def load_model(device: torch.device):
 def segment_single_image(
     model, processor, image_path: Path, device: torch.device
 ) -> Optional[Dict]:
-    """Segment one image and return its class ratios, or None if it cannot be processed."""
+    """Class ratios of one image, or None if it cannot be read or segmented."""
     try:
         img = Image.open(image_path).convert("RGB")
         inputs = processor(images=img, return_tensors="pt")
@@ -80,7 +66,7 @@ def segment_single_image(
             "sidewalk_ratio": float((mask == CLASS_INDICES["sidewalk"]).sum() / total_pixels),
         }
 
-        # central region: one tenth of the width and of the height around the image centre
+        # central 10% x 10% of the frame
         cx, cy = w // 2, h // 2
         margin_x, margin_y = max(1, w // 20), max(1, h // 20)
         center_region = building_mask[

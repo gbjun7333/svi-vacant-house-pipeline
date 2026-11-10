@@ -1,25 +1,9 @@
 #!/usr/bin/env python3
-"""Run the whole pipeline: parcel geometry and street view images in, trained and
-evaluated classifiers out.
+"""Run the pipeline, from parcel polygons and street view images to evaluated classifiers.
 
-    step       script                                                    paper
-    filter     scripts/3.2_task_suitability_filtering/01_filter_images.py       3.2
-    align      scripts/3.3_target_house_alignment/02_align_target_house.py      3.3
-    dataset    scripts/3.4_experimental_setup/03_build_dataset.py               3.4
-    train      scripts/3.4_experimental_setup/04_train_and_predict.py           3.4
-    evaluate   scripts/3.4_experimental_setup/05_evaluate.py                    4.5
-
-Inputs (see README.md)
-    --images    CSV with one row per image: image_path, parcel_id, camera_lat,
-                camera_lng, heading, fov
-    --parcels   GeoJSON with one polygon per parcel: parcel_id, label
-                (vacant or non_vacant), optionally division and pair_id
-
-Everything is written to ``--work-dir``. Each step skips what it has already done,
-so the command can be run again after an interruption.
-
-Usage:
     python run_pipeline.py --images data/images.csv --parcels data/parcels.geojson --work-dir work
+
+Finished work is skipped, so the same command picks up an interrupted run.
 """
 from __future__ import annotations
 
@@ -29,14 +13,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-SCRIPTS = ROOT / "scripts"
 STEPS = ("filter", "align", "dataset", "train", "evaluate")
 
 
-def run(script: str, *args) -> None:
-    cmd = [sys.executable, str(SCRIPTS / script), *map(str, args)]
-    print(f"\n=== {script}", flush=True)
-    subprocess.run(cmd, check=True)
+def run(module: str, *args) -> None:
+    cmd = [sys.executable, "-m", f"svi_pipeline.{module}", *map(str, args)]
+    print(f"\n=== {module}", flush=True)
+    subprocess.run(cmd, check=True, cwd=ROOT)
 
 
 def main() -> None:
@@ -55,17 +38,17 @@ def main() -> None:
     last = STEPS.index(args.stop_after)
 
     extra = ["--cluster-models", args.cluster_models.resolve()] if args.cluster_models else []
-    run("3.2_task_suitability_filtering/01_filter_images.py", *inputs, *extra)
+    run("filtering.filter_images", *inputs, *extra)
     if last >= 1:
-        run("3.3_target_house_alignment/02_align_target_house.py", *inputs)
+        run("alignment.align_target_house", *inputs)
     if last >= 2:
-        run("3.4_experimental_setup/03_build_dataset.py", *inputs)
+        run("experiment.build_dataset", *inputs)
     if last >= 3:
         extra = ["--config", args.config.resolve()] if args.config else []
-        run("3.4_experimental_setup/04_train_and_predict.py", "run-all",
+        run("experiment.train_and_predict", "run-all",
             "--dataset-dir", work / "dataset", "--runs-dir", work / "runs", *extra)
     if last >= 4:
-        run("3.4_experimental_setup/05_evaluate.py",
+        run("experiment.evaluate",
             "--predictions-dir", work / "runs" / "predictions", "--output-dir", work / "results")
     print(f"\ndone, outputs in {work}")
 

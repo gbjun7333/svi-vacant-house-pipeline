@@ -62,7 +62,7 @@ dataset and folds: `work/dataset/`;  <br />
 models and predictions: `work/runs/`;  <br />
 F1 and AUROC: `work/results/table3.csv`.
 
-Each step can also be run on its own with the scripts in `scripts/` (`01_filter_images.py` to `05_evaluate.py`).
+`--stop-after filter` (or `align`, `dataset`, `train`) ends the run early. Running the same command again picks up where it stopped.
 
 ## Citation
 

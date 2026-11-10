@@ -1,51 +1,22 @@
-#!/usr/bin/env python3
-"""Step 1: task-suitability filtering of the images (Section 3.2).
+"""Step 1. Task-suitability filtering (Section 3.2).
 
-For every image of the image table
-
-    1. SegFormer-B2 class ratios (building, vegetation, sky, road, ...)
-    2. image group (Built-up, Green, Open-sky) by K-means on the vegetation and sky
-       ratios, fitted on the images of each platform
-    3. operating group = image group x administrative division of the parcel
-    4. the filters of that operating group (Table 1 of the paper)
-
-With ``--cluster-models DIR`` the image groups are not fitted. Each image is assigned
-to the nearest centroid of ``DIR/<platform>.json`` instead, for example the models
-of the study in ``svi_pipeline/filtering/models``.
-
-Outputs in ``--work-dir``
-    segmentation.jsonl             class ratios per image
-    cluster_models/<platform>.json fitted image groups (when they are fitted here)
-    filtering.jsonl, filtering.csv image group, division, operating group, result of
-                                   each applied filter and ``passed`` per image
-    filtering_summary.json         images, passed images and Building Capture Rate
-                                   (tau = 5%) per operating group
-
-The script can be stopped and started again, segmented images are not segmented twice.
-
-Usage:
-    python scripts/3.2_task_suitability_filtering/01_filter_images.py \
-        --images data/images.csv --parcels data/parcels.geojson --work-dir work
+SegFormer-B2 class ratios per image, image groups by K-means on the vegetation and
+sky ratios (one model per platform), then the filters of each operating group.
+--cluster-models svi_pipeline/filtering/models reuses the groups fitted in the study.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
 import pandas as pd
 
-try:
-    import svi_pipeline  # noqa: F401
-except ImportError:  # running from a checkout without installing the package
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from svi_pipeline.filtering import cluster, filters
-from svi_pipeline.filtering.bcr import PRINCIPAL_THRESHOLD, building_capture_rate
-from svi_pipeline.filtering.groups import OPERATING_GROUPS, URBAN, operating_group
-from svi_pipeline.inputs import load_images, load_parcels
+from ..inputs import load_images, load_parcels
+from . import cluster, filters
+from .bcr import PRINCIPAL_THRESHOLD, building_capture_rate
+from .groups import OPERATING_GROUPS, URBAN, operating_group
 
 N_CLUSTERS = 3
 SEED = 42
@@ -58,14 +29,15 @@ def read_jsonl(path: Path) -> list:
 
 
 def segment_images(images: pd.DataFrame, out_jsonl: Path) -> dict:
-    """{image_id: class ratios} for every image, computing the missing ones."""
+    """Class ratios by image_id. Images already in out_jsonl are not segmented again."""
     done = {r["image_id"] for r in read_jsonl(out_jsonl)}
     todo = images[~images["image_id"].isin(done)]
     print(f"segmentation: {len(images)} images, {len(todo)} to do", flush=True)
     if len(todo):
-        from svi_pipeline.filtering import segment
+        from ..device import get_device
+        from . import segment
 
-        device = segment.get_device()
+        device = get_device()
         model, processor = segment.load_model(device)
         t0 = time.time()
         with out_jsonl.open("a", encoding="utf-8") as fo:
@@ -80,7 +52,7 @@ def segment_images(images: pd.DataFrame, out_jsonl: Path) -> dict:
 
 
 def cluster_model(platform: str, records: list, models_dir: Path | None, work_dir: Path) -> dict:
-    """Fitted image groups of one platform: loaded from ``models_dir`` or fitted on ``records``."""
+    """K-means model of one platform, loaded from models_dir or fitted on records."""
     if models_dir is not None:
         for name in (f"{platform}.json", f"{platform}_cluster_model.json"):
             if (models_dir / name).exists():

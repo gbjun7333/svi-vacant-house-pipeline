@@ -1,25 +1,9 @@
-#!/usr/bin/env python3
-"""Train one classifier of the classification experiment (Section 3.4).
+"""Train one classifier (Section 3.4). Called by train_and_predict for each condition and fold.
 
-Called by ``04_train_and_predict.py`` once for every input condition and fold.
-
-Fine-tunes the ResNet-50 on the images of one split file and keeps the weights of the
-epoch with the highest validation accuracy. Training stops when the validation
-accuracy has not improved for ``patience`` epochs. Loss: binary cross-entropy on the
-logit. Optimiser: AdamW with cosine annealing over the configured number of epochs.
-
-Without ``--mask-col`` the input is the image (three channels). With ``--mask-col``
-the mask in that column of the split file is the fourth channel, and ``--mask-only``
-blanks the image channels.
-
-Outputs in ``--output-dir``: ``best.pt`` (weights, seed, epoch, validation accuracy,
-settings), ``history.json`` (loss and accuracy per epoch), ``train_summary.json``.
-
-Usage:
-    python scripts/3.4_experimental_setup/train.py \
-        --train-csv work/dataset/folds/fold0/aligned_train.csv \
-        --val-csv work/dataset/folds/fold0/aligned_val.csv \
-        --seed 13 --mask-col mask_path --output-dir work/runs/aligned/fold0
+ResNet-50 with binary cross-entropy, AdamW and cosine annealing. The weights of the
+epoch with the highest validation accuracy are kept, and training stops after
+`patience` epochs without improvement. With --mask-col the mask in that column is a
+fourth input channel, and --mask-only blanks the image channels.
 """
 from __future__ import annotations
 
@@ -28,7 +12,6 @@ import csv
 import json
 import math
 import random
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,16 +22,11 @@ import torch.nn as nn
 import yaml
 from torch.utils.data import DataLoader
 
-try:
-    import svi_pipeline  # noqa: F401
-except ImportError:  # running from a checkout without installing the package
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from ..device import get_device
+from .data import ImageDataset, MaskDataset, MaskTransform, rgb_transforms
+from .model import create_model, widen_conv1
 
-from svi_pipeline.device import get_device
-from svi_pipeline.experiment.data import ImageDataset, MaskDataset, MaskTransform, rgb_transforms
-from svi_pipeline.experiment.model import create_model, widen_conv1
-
-DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "svi_pipeline" / "experiment" / "configs" / "train.yaml"
+DEFAULT_CONFIG = Path(__file__).resolve().parent / "configs" / "train.yaml"
 
 
 @dataclass
@@ -81,8 +59,6 @@ def load_yaml_config(path: Path) -> TrainConfig:
 
 
 def seed_everything(seed: int) -> None:
-    """The seed fixes the initial weights of the output layer, the order of the
-    training images and the random crops."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -160,8 +136,8 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--mask-col", default=None,
-                        help="column of the split files with the mask PNG (adds the mask as a fourth channel)")
-    parser.add_argument("--mask-only", action="store_true", help="control: image channels set to 0")
+                        help="split-file column with the mask PNG, used as a fourth channel")
+    parser.add_argument("--mask-only", action="store_true", help="mask-only control, image channels set to 0")
     args = parser.parse_args()
     if args.mask_only and not args.mask_col:
         parser.error("--mask-only needs --mask-col")

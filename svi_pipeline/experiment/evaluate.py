@@ -1,24 +1,8 @@
-#!/usr/bin/env python3
-"""Step 5: image-level and parcel-level F1 and AUROC of the five input conditions (Section 4.5, Table 3).
+"""Step 5. Image-level and parcel-level F1 and AUROC of each condition (Section 4.5, Table 3).
 
-Input: the predictions written by ``04_train_and_predict.py``
-(``<cond>_fold<k>_val.csv`` and ``<cond>_fold<k>_test.csv``).
-
-For every condition and fold
-    threshold       the validation threshold with the highest image-level F1
-    image level     F1 at that threshold and AUROC of the test images
-    parcel level    the same for the test parcels, each scored by the mean
-                    probability of its images
-
-Table 3 reports the mean and the sample standard deviation over the five folds.
-
-Outputs in ``--output-dir``
-    per_fold.csv   one row per condition and fold
-    table3.csv     one row per condition: mean, SD and "mean ± SD" of the four measures
-
-Usage:
-    python scripts/3.4_experimental_setup/05_evaluate.py \
-        --predictions-dir work/runs/predictions --output-dir work/results
+The F1 threshold is the one with the highest image-level F1 on the validation images
+of the fold. A parcel is scored by the mean probability of its images. table3.csv
+holds the mean and sample SD over the folds.
 """
 from __future__ import annotations
 
@@ -30,13 +14,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-try:
-    import svi_pipeline  # noqa: F401
-except ImportError:  # running from a checkout without installing the package
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from svi_pipeline.experiment.metrics import metrics_at, parcel_level, tune_threshold
-from svi_pipeline.experiment.conditions import CONDITION_LABELS, FOLDS, ORDER, SEEDS
+from .conditions import CONDITION_LABELS, FOLDS, ORDER, SEEDS
+from .metrics import metrics_at, parcel_level, tune_threshold
 
 MEASURES = ("img_f1", "img_auroc", "parcel_f1", "parcel_auroc")
 

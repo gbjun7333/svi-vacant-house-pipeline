@@ -1,51 +1,22 @@
-#!/usr/bin/env python3
-"""Step 2: target-house alignment of the images that passed filtering (Section 3.3).
+"""Step 2. Target-house alignment (Section 3.3).
 
-    sam     SAM 3 house and fence masks for every image that passed filtering, and
-            the exclusions of Table C.2 (no house, too many houses, fence dominant,
-            distant or small houses)
-    align   for every image that passed the SAM 3 step: the parcel polygon is
-            projected into the image with the camera position, heading and field of
-            view. Its horizontal extent is the parcel band. Every house mask is
-            scored against the band, and the top-1 mask is the one with the largest
-            overlap among the masks that overlap the band
-
-Outputs in ``--work-dir``
-    masks/<image_id>.npz           house masks of an image (``svi_pipeline/alignment/masks.py``)
-    sam.jsonl, sam.csv             number of houses, exclusion result per image
-    alignment.jsonl, alignment.csv parcel band, scores of every candidate mask
-                                   (``cands``, jsonl only) and the selected mask
-
-``aligned`` is False when an image has no camera values, no parcel polygon, a parcel
-behind the camera, or no mask overlapping the parcel band. For aligned images
-``top1_idx`` is the index of the selected mask in the image's ``.npz`` file and
-``bbox_tight`` its pixel extent (x1, y1, x2, y2).
-
-Both parts can be stopped and started again, finished images are skipped.
-
-Usage:
-    python scripts/3.3_target_house_alignment/02_align_target_house.py \
-        --images data/images.csv --parcels data/parcels.geojson --work-dir work
+SAM 3 house masks for the images that passed filtering. The parcel polygon is then
+projected into each image, and the mask that overlaps this parcel band most is taken
+as the target house. top1_idx in alignment.csv is its index in masks/<image_id>.npz.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
 import pandas as pd
 
-try:
-    import svi_pipeline  # noqa: F401
-except ImportError:  # running from a checkout without installing the package
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from svi_pipeline.alignment.masks import load_mask_stack, tight_bbox_from_mask
-from svi_pipeline.alignment.scoring import score_image
-from svi_pipeline.alignment.selection import band_gate, pick_top1_overlap
-from svi_pipeline.inputs import CAMERA_COLUMNS, load_images, load_parcels
+from ..inputs import CAMERA_COLUMNS, load_images, load_parcels
+from .masks import load_mask_stack, tight_bbox_from_mask
+from .scoring import score_image
+from .selection import band_gate, pick_top1_overlap
 
 
 def read_jsonl(path: Path) -> list:
@@ -60,7 +31,7 @@ def read_table(path: Path) -> pd.DataFrame:
 
 def run_sam(images: pd.DataFrame, work: Path) -> None:
     """SAM 3 on the images that passed filtering."""
-    from svi_pipeline.alignment import sam3
+    from . import sam3
 
     filt = read_table(work / "filtering.csv")
     passed = set(filt.loc[filt["passed"] == "True", "image_id"])
@@ -78,7 +49,7 @@ def run_sam(images: pd.DataFrame, work: Path) -> None:
                 try:
                     res = sam3.run_one(runner, Path(r.path), mask_path)
                     rec = {**base, "mask_path": str(mask_path), **res, "error": ""}
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     rec = {**base, "filter_result": "fail", "filter_reason": "sam_error",
                            "error": f"{type(e).__name__}:{e}"[:300]}
                 fo.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -94,7 +65,7 @@ def run_sam(images: pd.DataFrame, work: Path) -> None:
 
 
 def run_align(images: pd.DataFrame, parcels: dict, work: Path) -> None:
-    """Parcel band, candidate scores and top-1 mask for the images that passed the SAM 3 step."""
+    """Parcel band, mask scores and top-1 mask for the images that passed the SAM 3 step."""
     sam = read_table(work / "sam.csv")
     mask_of = dict(zip(sam.loc[sam["filter_result"] == "pass", "image_id"],
                        sam.loc[sam["filter_result"] == "pass", "mask_path"]))
@@ -113,7 +84,6 @@ def run_align(images: pd.DataFrame, parcels: dict, work: Path) -> None:
                 rec = score_image(Path(mask_path), parcel["geometry"] if parcel else None, *camera)
             rec = {"image_id": r.image_id, "path": r.path, "parcel_id": r.parcel_id, "mask_path": mask_path, **rec}
             if not rec.get("error"):
-                # masks that do not overlap the parcel band are not candidates
                 gate = band_gate(rec["cands"])
                 if not gate:
                     rec["aligned"] = False
