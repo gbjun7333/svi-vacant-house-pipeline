@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .geometry import CAMERA_HEIGHT_M, parcel_band, polygon_to_local, target_distance_m
+from .geometry import parcel_band, polygon_to_local, target_distance_m
 from .masks import load_all_masks
 
 SIGMA_BAND_FRAC = 0.20          # sigma of f_align as a share of the band width
@@ -76,7 +76,7 @@ def score_image(mask_path: Path, parcel_geometry: Optional[Dict], camera_lat: fl
         H, W = masks[0].shape
         fx = (W / 2.0) / math.tan(math.radians(fov) / 2.0)
         target_poly = polygon_to_local(parcel_geometry, float(camera_lat), float(camera_lng))
-        Bt = parcel_band(target_poly, pano_xy, CAMERA_HEIGHT_M, heading, fov, W, H)
+        Bt = parcel_band(target_poly, pano_xy, heading, fov, W)
         if Bt is None:
             return {"n_masks": len(masks), "error": "target_behind_camera"}
         d = target_distance_m(target_poly, pano_xy)

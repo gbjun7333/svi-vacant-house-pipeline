@@ -1,8 +1,9 @@
-"""Pinhole projection of a parcel into an image (Section 3.3).
+"""Parcel band of an image (Section 3.3).
 
-Local east-north metres with the camera at the origin, CAMERA_HEIGHT_M above the
-ground, no tilt or roll. heading_deg is a compass bearing (0 = north, 90 = east).
-The horizontal extent of the projected parcel is the parcel band.
+Local east-north metres with the camera at the origin. heading_deg is a compass
+bearing (0 = north, 90 = east). Column x looks along the bearing
+theta = heading + (x / W - 0.5) * fov, and the parcel band is the column range
+of the parcel's vertices.
 """
 from __future__ import annotations
 
@@ -11,7 +12,6 @@ from typing import Dict, Optional, Tuple
 
 from shapely.geometry import MultiPolygon, Polygon
 
-CAMERA_HEIGHT_M = 2.5
 CAR_FWD_PAD_M = 0.5      # vertices closer than this in front of the camera are ignored
 EARTH_R_M = 6378137.0
 
@@ -38,34 +38,21 @@ def polygon_to_local(geom: Dict, lat0: float, lng0: float):
     raise ValueError(t)
 
 
-def focal_px(width_px: int, fov_h_deg: float) -> float:
-    """Horizontal focal length in pixels."""
-    return (width_px / 2.0) / math.tan(math.radians(fov_h_deg) / 2.0)
-
-
-def project_world_to_image(x_world, y_world, pano_xy, cam_h, heading_deg,
-                           fov_h_deg, W, H) -> Optional[Tuple[float, float]]:
-    """Pixel (u, v) of a ground point. None when it is behind the camera or within CAR_FWD_PAD_M of it."""
+def vertex_column(x_world, y_world, pano_xy, heading_deg, fov_h_deg, W) -> Optional[float]:
+    """Image column of a ground point. None when it is behind the camera or within CAR_FWD_PAD_M of it."""
     dx = x_world - pano_xy[0]
     dy = y_world - pano_xy[1]
-    dz = 0.0 - cam_h
     h = math.radians(heading_deg)
-    # east = +x, north = +y, up = +z
-    fwd = (math.sin(h), math.cos(h), 0.0)
-    right = (math.cos(h), -math.sin(h), 0.0)
-    up = (0.0, 0.0, 1.0)
-    X = dx * right[0] + dy * right[1] + dz * right[2]
-    Y = dx * up[0] + dy * up[1] + dz * up[2]
-    Z = dx * fwd[0] + dy * fwd[1] + dz * fwd[2]
-    if Z <= CAR_FWD_PAD_M:
+    # east = +x, north = +y
+    fwd = dx * math.sin(h) + dy * math.cos(h)
+    right = dx * math.cos(h) - dy * math.sin(h)
+    if fwd <= CAR_FWD_PAD_M:
         return None
-    fx = (W / 2.0) / math.tan(math.radians(fov_h_deg) / 2.0)
-    u = (W / 2.0) + fx * (X / Z)
-    v = (H / 2.0) - fx * (Y / Z)
-    return u, v
+    offset = math.atan2(right, fwd)     # theta - heading
+    return W * (0.5 + offset / math.radians(fov_h_deg))
 
 
-def parcel_band(target_polygon, pano_xy, cam_h, heading_deg, fov_h, W, H):
+def parcel_band(target_polygon, pano_xy, heading_deg, fov_h, W):
     """(u_min, u_max) of the projected parcel, clamped to the image.
 
     None when no vertex is in front of the camera.
@@ -77,11 +64,9 @@ def parcel_band(target_polygon, pano_xy, cam_h, heading_deg, fov_h, W, H):
     us = []
     for ring in exteriors:
         for x, y in ring:
-            p = project_world_to_image(x, y, pano_xy, cam_h, heading_deg, fov_h, W, H)
-            if p is None:
-                continue
-            u, _ = p
-            us.append(u)
+            u = vertex_column(x, y, pano_xy, heading_deg, fov_h, W)
+            if u is not None:
+                us.append(u)
     if not us:
         return None
     return max(0.0, min(us)), min(float(W), max(us))
