@@ -46,6 +46,8 @@ python run_pipeline.py \
 | `fov` | horizontal field of view, in degrees |
 | `platform` | optional, image source |
 
+*Note:* in our acquisition code, the equirectangular panoramas were first converted to perspective views.
+
 `parcels.geojson`, one polygon per parcel (EPSG:4326), with properties:
 
 | property | description |
